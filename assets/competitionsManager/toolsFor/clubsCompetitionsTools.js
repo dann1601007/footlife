@@ -3,6 +3,7 @@
 // Factory for creating league objects and providing tools to manage them
 
 import { getClubsByContinent, getClubsByCountry } from "../../clubs/clubs.js";
+import { Day, Calendar, Season, WorldTimeManager } from "../calendar/calendarManager.js";
 
 class Club {
     constructor(id, name, country, continent, specs, stadium) {
@@ -20,11 +21,18 @@ class Club {
         this.goalsFor = 0;
         this.goalsAgainst = 0;
         this.points = 0;
+        this.goalDifference = this.goalsFor - this.goalsAgainst;
+
+        this.championsMatchPlayed = 0;
+        this.championsWins = 0;
+        this.championsDraws = 0;
+        this.championsLosses = 0;
+        this.championsGoalsFor = 0;
+        this.championsGoalsAgainst = 0;
+        this.championsPoints = 0;
+        this.championsGoalDifference = this.championsGoalsFor - this.championsGoalsAgainst;
     }
 
-    get goalDifference() {
-        return this.goalsFor - this.goalsAgainst;
-    }
 
     resetStats() {
         this.matchesPlayed = 0;
@@ -34,6 +42,14 @@ class Club {
         this.goalsFor = 0;
         this.goalsAgainst = 0;
         this.points = 0;
+
+        this.championsMatchPlayed = 0;
+        this.championsWins = 0;
+        this.championsDraws = 0;
+        this.championsLosses = 0;
+        this.championsGoalsFor = 0;
+        this.championsGoalsAgainst = 0;
+        this.championsPoints = 0;
     }
 
     recordMatch(goalsFor, goalsAgainst) {
@@ -51,6 +67,24 @@ class Club {
             this.points += 1;
         }
     }
+
+    recordMatchChampions(championsGoalsFor, championGoalsAgainst) {
+        this.championsMatchPlayed += 1;
+        this.championsGoalsFor += championsGoalsFor;
+        this.championsGoalsAgainst += championGoalsAgainst;
+
+        if (championsGoalsFor > championGoalsAgainst) {
+            this.championsWins += 1;
+            this.championsPoints += 3;
+        } else if (championsGoalsFor < championGoalsAgainst) {
+            this.championsLosses += 1;
+        } else {
+            this.championsDraws += 1;
+            this.championsPoints += 1;
+        }
+
+        this.championsGoalDifference = this.championsGoalsFor - this.championsGoalsAgainst;
+    }
 }
 
 class Match {
@@ -60,6 +94,9 @@ class Match {
         this.homeGoals = null;
         this.awayGoals = null;
         this.played = false;
+        this.dayScheduled = null; // Jour du calendrier (1-366)
+        this.matchday = null; // Numéro de la journée
+        this.competitionType = "championship"; // championship, cup, continental
     }
 
     simulateMatch() {
@@ -150,6 +187,7 @@ class CupMatch extends Match {
         this.penaltiesScoreHomeClub = null;
         this.penaltiesScoreAwayClub = null;
     }
+
     simulateMatch() {
         const teamA = this.homeClub;
         const teamB = this.awayClub;
@@ -192,7 +230,7 @@ class CupMatch extends Match {
 
         this.played = true;
 
-                function goalAttempt(team, opponent) {
+        function goalAttempt(team, opponent) {
             const teamAttack = team.specs.attack
             const teamMidfield = team.specs.midfield
             const teamDefense = team.specs.defense
@@ -259,18 +297,22 @@ class CupMatch extends Match {
 
 }
 
+
+
 class League {
     constructor(name, country, continent, clubs) {
         this.name = name;
         this.country = country;
-        this.continent = continent;
-        this.clubs = clubs
-        this.calendar = [];
+        this.matchdays = []; // Array of matchdays
+        this.currentMatchday = 0;
         this.c1Slots = [];
         this.c2Slots = [];
-
+        this.type = "championship";
     }
 
+    /**
+     * Génère le calendrier et organise les matchs par journées
+     */
     generateCalendar() {
         this.calendar = [];
         const n = this.clubs.length;
@@ -282,16 +324,49 @@ class League {
                 }
             }
         }
+
+        // Organiser les matchs par journées
+        this.organizeMatchdays();
+    }
+
+    /**
+     * Organise les matchs en journées
+     */
+    organizeMatchdays() {
+        const n = this.clubs.length;
+        const totalRounds = n - 1; // Nombre de journées
+        const matchesPerRound = n / 2;
+
+        // Créer un array de journées
+        this.matchdays = Array.from({ length: totalRounds }, () => []);
+
+        let matchIndex = 0;
+        for (let day = 0; day < totalRounds; day++) {
+            for (let match = 0; match < matchesPerRound; match++) {
+                if (matchIndex < this.calendar.length) {
+                    this.calendar[matchIndex].matchday = day + 1;
+                    this.matchdays[day].push(this.calendar[matchIndex]);
+                    matchIndex++;
+                }
+            }
+        }
+    }
+
+    /**
+     * Assigne les matchs au calendrier de saison
+     */
+    assignToSeasonCalendar(season) {
+        season.assignMatchesToCalendar(this, this.calendar);
+        console.log(`${this.name}: ${this.calendar.length} matchs assignés au calendrier`);
     }
 
     simulateLeague() {
         this.generateCalendar();
         this.calendar.forEach(match => match.simulateMatch());
-        
 
         // show all matches results
         this.calendar.forEach(match => {
-             console.log(`${match.homeClub.name} ${match.homeGoals} - ${match.awayGoals} ${match.awayClub.name}`);
+            console.log(`${match.homeClub.name} ${match.homeGoals} - ${match.awayGoals} ${match.awayClub.name}`);
         });
     }
 
@@ -313,6 +388,16 @@ class League {
             return b.wins - a.wins;
         });
     }
+
+    /**
+     * Retourne les matchs d'une journée spécifique
+     */
+    getMatchdayMatches(matchdayNumber) {
+        if (matchdayNumber < 1 || matchdayNumber > this.matchdays.length) {
+            return [];
+        }
+        return this.matchdays[matchdayNumber - 1];
+    }
 }
 
 class NationalCup {
@@ -322,10 +407,19 @@ class NationalCup {
         this.continent = continent;
         this.clubs = clubs;
         this.calendar = [];
+        this.type = "nationalCup";
     }
 
     drawClubsCup(teams) {
         return [...teams].sort(() => Math.random() - 0.5);
+    }
+
+    /**
+     * Assigne les matchs de coupe au calendrier de saison
+     */
+    assignToSeasonCalendar(season) {
+        season.assignMatchesToCalendar(this, this.calendar);
+        console.log(`${this.name}: ${this.calendar.length} matchs assignés au calendrier`);
     }
 
     simulateCup(exemptedClubs) {
@@ -409,12 +503,43 @@ class CountryFederation {
         this.mainSeason = 1;
         this.championsHistory = [];
         this.cupChampion = [];
+        this.season = null;
+        this.timeManager = new WorldTimeManager();
+    }
+
+    /**
+     * Initialise une nouvelle saison
+     */
+    initSeason(seasonNumber) {
+        this.season = this.timeManager.createSeason(seasonNumber);
+        this.mainSeason = seasonNumber;
+        return this.season;
+    }
+
+    /**
+     * Joueur passe au jour suivant
+     * C'est L'ACTION PRINCIPALE du joueur pour faire avancer le temps
+     */
+    playerPassDay() {
+        const nextDay = this.timeManager.playerPassDay();
+        if (nextDay) {
+            console.log(`\n>>> Jour ${nextDay.dayNumber}: ${nextDay.dayName} ${nextDay.dayInMonth} ${nextDay.monthName}`);
+            const todayMatches = this.timeManager.getTodayMatches();
+            if (todayMatches.length > 0) {
+                console.log(`📅 ${todayMatches.length} match(s) prévus aujourd'hui!`);
+                return todayMatches;
+            }
+        }
+        return [];
     }
 
     turnOnTheSeason() {
         console.log(`\n=============================================`);
-        console.log(`   SEASON N°${this.mainSeason}`);
+        console.log(`   SAISON N°${this.mainSeason}`);
         console.log(`=============================================`);
+
+        // Initialiser la saison
+        const season = this.initSeason(this.mainSeason);
 
         this.clubs.forEach(club => club.resetStats());
 
@@ -422,33 +547,45 @@ class CountryFederation {
         const clubsD2 = this.clubs.slice(18, 36);
         const clubsD3 = this.clubs.slice(36, 54);
 
+        // Créer les ligues
         const d1 = new League("Division 1", clubsD1[0].country, clubsD1[0].continent, clubsD1);
         const d2 = new League("Division 2", clubsD2[0].country, clubsD2[0].continent, clubsD2);
         const d3 = new League("Division 3", clubsD3[0].country, clubsD3[0].continent, clubsD3);
 
+        // Générer les calendriers des ligues
+        d1.generateCalendar();
+        d2.generateCalendar();
+        d3.generateCalendar();
+
+        // Assigner les matchs au calendrier de saison
+        d1.assignToSeasonCalendar(season);
+        d2.assignToSeasonCalendar(season);
+        d3.assignToSeasonCalendar(season);
+
+        // Simuler les matchs (en production, les matchs se joueront au fil du temps)
         d1.simulateLeague();
         const d1Ranking = d1.claimLeagueRanking();
         console.log(d1Ranking)
         this.championsHistory.push(d1Ranking[0].name);
-        console.log(`Champion of ${d1.country} - ${d1.name}: ${d1Ranking[0].name}`);
+        console.log(`Champion de ${d1.country} - ${d1.name}: ${d1Ranking[0].name}`);
 
         d2.simulateLeague();
         const d2Ranking = d2.claimLeagueRanking();
-        console.log(`Champion of ${d2.country} - ${d2.name}: ${d2Ranking[0].name}`);
+        console.log(`Champion de ${d2.country} - ${d2.name}: ${d2Ranking[0].name}`);
 
         d3.simulateLeague();
         const d3Ranking = d3.claimLeagueRanking();
-        console.log(`Champion of ${d3.country} - ${d3.name}: ${d3Ranking[0].name}`);
+        console.log(`Champion de ${d3.country} - ${d3.name}: ${d3Ranking[0].name}`);
 
         const exempteds = d1Ranking.slice(0, 10);
-        const nationalCup = new NationalCup("National Cup", d1.country, d1.continent, this.clubs);
+        const nationalCup = new NationalCup("Coupe Nationale", d1.country, d1.continent, this.clubs);
         nationalCup.simulateCup(exempteds);
+        // nationalCup.assignToSeasonCalendar(season);
 
         this.promotionsManager(d1Ranking, d2Ranking, d3Ranking);
 
         this.mainSeason++;
     }
-
 
     promotionsManager(d1Ranking, d2Ranking, d3Ranking) {
         // -- division 1 --
@@ -471,8 +608,14 @@ class CountryFederation {
 
         this.clubs = [...newD1Clubs, ...newD2Clubs, ...newD3Clubs];
     }
-}
 
+    /**
+     * Affiche l'état du monde
+     */
+    displayWorldStatus() {
+        this.timeManager.displayWorldStatus();
+    }
+}
 
 // Exporting the classes for use in other modules
 export { Club, Match, CupMatch, League, NationalCup, CountryFederation };
